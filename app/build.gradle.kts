@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.myglass.launcher"
-        minSdk = 26 // 液态玻璃效果最低需要 Android 8.0
+        minSdk = 26
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
@@ -18,7 +18,8 @@ android {
         compose = true
     }
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.1"
+        // 完美匹配 Kotlin 1.9.22
+        kotlinCompilerExtensionVersion = "1.5.8" 
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
