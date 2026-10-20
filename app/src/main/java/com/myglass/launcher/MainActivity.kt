@@ -10,9 +10,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -70,19 +67,39 @@ fun GlassLauncherScreen() {
             .fillMaxSize()
             .background(Color(0xFF1E1E2E)) 
     ) {
+        // 每页放 20 个应用，所以总共是 (allApps.size + 19) / 20 页
         val pagerState = rememberPagerState(pageCount = { (allApps.size + 19) / 20 })
         
-        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+        HorizontalPager(
+            state = pagerState, 
+            modifier = Modifier.fillMaxSize()
+        ) { page ->
             val startIndex = page * 20
             val pageApps = allApps.drop(startIndex).take(20)
             
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(4),
-                modifier = Modifier.fillMaxSize().padding(top = 40.dp, bottom = 120.dp, start = 16.dp, end = 16.dp),
-                contentPadding = PaddingValues(16.dp)
+            // 🚀 性能暴增方案：使用纯 Column + Row 代替沉重的 LazyGrid
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 60.dp, bottom = 120.dp, start = 16.dp, end = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                items(pageApps, key = { it.packageName }) { app ->
-                    AppIcon(app)
+                // 将 20 个应用分成 5 行，每行 4 个
+                for (row in 0 until 5) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        for (col in 0 until 4) {
+                            val index = row * 4 + col
+                            if (index < pageApps.size) {
+                                AppIcon(pageApps[index])
+                            } else {
+                                // 占位，保持排版整齐
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -111,7 +128,6 @@ fun GlassLauncherScreen() {
     }
 }
 
-// 桌面图标组件：加入了坐标捕捉和缩放动画
 @Composable
 fun AppIcon(app: AppInfo) {
     val context = LocalContext.current
@@ -122,25 +138,13 @@ fun AppIcon(app: AppInfo) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .padding(8.dp)
+            .width(64.dp) // 固定宽度，防止挤压
             .onGloballyPositioned { coordinates ->
-                // 捕捉图标在屏幕上的绝对位置
                 offset = coordinates.positionInWindow()
                 size = coordinates.size
             }
             .clickable {
-                val intent = context.packageManager.getLaunchIntentForPackage(app.packageName)
-                if (intent != null) {
-                    // 应用缩放动画
-                    val options = ActivityOptions.makeScaleUpAnimation(
-                        view,
-                        offset.x.toInt(),
-                        offset.y.toInt(),
-                        size.width,
-                        size.height
-                    ).toBundle()
-                    context.startActivity(intent, options)
-                }
+                launchAppWithAnimation(context, view, app, offset, size)
             }
     ) {
         Image(
@@ -154,7 +158,6 @@ fun AppIcon(app: AppInfo) {
     }
 }
 
-// Dock 图标组件：同样加入缩放动画
 @Composable
 fun DockAppIcon(app: AppInfo) {
     val context = LocalContext.current
@@ -173,17 +176,36 @@ fun DockAppIcon(app: AppInfo) {
                 size = coordinates.size
             }
             .clickable {
-                val intent = context.packageManager.getLaunchIntentForPackage(app.packageName)
-                if (intent != null) {
-                    val options = ActivityOptions.makeScaleUpAnimation(
-                        view,
-                        offset.x.toInt(),
-                        offset.y.toInt(),
-                        size.width,
-                        size.height
-                    ).toBundle()
-                    context.startActivity(intent, options)
-                }
+                launchAppWithAnimation(context, view, app, offset, size)
             }
     )
+}
+
+// 🚀 抽离出来的启动函数，确保带上 FLAG_ACTIVITY_NEW_TASK 并强制使用动画
+private fun launchAppWithAnimation(
+    context: android.content.Context,
+    view: android.view.View,
+    app: AppInfo,
+    offset: Offset,
+    size: IntSize
+) {
+    val intent = context.packageManager.getLaunchIntentForPackage(app.packageName)?.apply {
+        // 这个 Flag 是桌面启动第三方应用必须加的
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    if (intent != null) {
+        try {
+            val options = ActivityOptions.makeScaleUpAnimation(
+                view,
+                offset.x.toInt(),
+                offset.y.toInt(),
+                size.width,
+                size.height
+            ).toBundle()
+            context.startActivity(intent, options)
+        } catch (e: Exception) {
+            // 如果系统拦截了动画导致崩溃，就退回到普通启动
+            context.startActivity(intent)
+        }
+    }
 }
