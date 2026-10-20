@@ -18,8 +18,7 @@ android {
         compose = true
     }
     composeOptions {
-        // 完美匹配 Kotlin 1.9.22
-        kotlinCompilerExtensionVersion = "1.5.8" 
+        kotlinCompilerExtensionVersion = "1.5.8"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
