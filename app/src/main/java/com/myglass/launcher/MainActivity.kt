@@ -5,7 +5,13 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -26,7 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -52,14 +58,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun GlassLauncherScreen() {
     val context = LocalContext.current
     var allApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
-    
-    // 记录当前是第几页
     var currentPage by remember { mutableStateOf(0) }
-    val appsPerPage = 20 // 每页20个应用
+    val appsPerPage = 20
 
     LaunchedEffect(Unit) {
         val pm = context.packageManager
@@ -75,7 +80,6 @@ fun GlassLauncherScreen() {
         }.sortedBy { it.name }
     }
 
-    // 计算总页数
     val totalPages = if (allApps.isEmpty()) 1 else (allApps.size + appsPerPage - 1) / appsPerPage
 
     Box(
@@ -86,43 +90,31 @@ fun GlassLauncherScreen() {
                     colors = listOf(Color(0xFF1E1E2E), Color(0xFF14141B))
                 )
             )
-            // 🚀 核心：监听全屏左右滑动手势，实现翻页
             .pointerInput(totalPages) {
                 detectHorizontalDragGestures { change, dragAmount ->
                     change.consume()
-                    // 向左滑 (dragAmount < -80f) -> 去下一页
                     if (dragAmount < -80f && currentPage < totalPages - 1) {
                         currentPage++
-                    } 
-                    // 向右滑 (dragAmount > 80f) -> 去上一页
-                    else if (dragAmount > 80f && currentPage > 0) {
+                    } else if (dragAmount > 80f && currentPage > 0) {
                         currentPage--
                     }
                 }
             }
     ) {
-        // 根据 currentPage 截取当前页的 App
-        val startIndex = currentPage * appsPerPage
-        val pageApps = allApps.drop(startIndex).take(appsPerPage)
-
-        // 🚀 动画：当页码改变时，让页面平滑地左右滑动切换
         AnimatedContent(
             targetState = currentPage,
             transitionSpec = {
                 if (targetState > initialState) {
-                    // 向左滑，新页面从右侧进来
-                    slideInHorizontally(animationSpec = tween(300)) { width -> width } + fadeIn(tween(300)) togetherWith
-                            slideOutHorizontally(animationSpec = tween(300)) { width -> -width } + fadeOut(tween(300))
+                    (slideInHorizontally(animationSpec = tween(300)) { width -> width } + fadeIn(tween(300)))
+                        .togetherWith(slideOutHorizontally(animationSpec = tween(300)) { width -> -width } + fadeOut(tween(300)))
                 } else {
-                    // 向右滑，新页面从左侧进来
-                    slideInHorizontally(animationSpec = tween(300)) { width -> -width } + fadeIn(tween(300)) togetherWith
-                            slideOutHorizontally(animationSpec = tween(300)) { width -> width } + fadeOut(tween(300))
+                    (slideInHorizontally(animationSpec = tween(300)) { width -> -width } + fadeIn(tween(300)))
+                        .togetherWith(slideOutHorizontally(animationSpec = tween(300)) { width -> width } + fadeOut(tween(300)))
                 }
             },
             label = "page_anim",
             modifier = Modifier.fillMaxSize()
         ) { targetPage ->
-            // 这里的 targetPage 就是动画执行过程中的当前页
             val animatedStartIndex = targetPage * appsPerPage
             val animatedPageApps = allApps.drop(animatedStartIndex).take(appsPerPage)
 
