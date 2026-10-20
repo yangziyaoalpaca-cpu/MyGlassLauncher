@@ -1,9 +1,11 @@
 package com.myglass.launcher
 
 import android.content.Intent
+import android.graphics.drawable.Drawable
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,9 +28,9 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.drawable.toBitmap
 
-// 定义一个 App 数据类，用来存名字、包名和图标
-data class AppInfo(val name: String, val packageName: String, val icon: android.graphics.drawable.Drawable)
+data class AppInfo(val name: String, val packageName: String, val icon: Drawable)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,12 +41,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// 加上这句通行证，解决刚刚的报错！
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GlassLauncherScreen() {
     val context = LocalContext.current
     var allApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
 
-    // 启动时获取手机里所有安装的 App
     LaunchedEffect(Unit) {
         val pm = context.packageManager
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
@@ -58,13 +61,11 @@ fun GlassLauncherScreen() {
         }.sortedBy { it.name }
     }
 
-    // 桌面背景（深色背景，为了衬托出玻璃效果）
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF1E1E2E))
     ) {
-        // 应用网格分页 (每页最多 20 个 App)
         val pagerState = rememberPagerState(pageCount = { (allApps.size + 19) / 20 })
         
         HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
@@ -82,7 +83,7 @@ fun GlassLauncherScreen() {
             }
         }
 
-        // 底部液态玻璃 Dock 栏（先用半透明+高斯模糊模拟）
+        // 底部液态玻璃 Dock 栏
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -107,16 +108,14 @@ fun AppIcon(app: AppInfo) {
         modifier = Modifier
             .padding(8.dp)
             .clickable {
-                // 点击图标启动应用
                 val intent = context.packageManager.getLaunchIntentForPackage(app.packageName)
                 if (intent != null) {
                     context.startActivity(intent)
                 }
             }
     ) {
-        // 将安卓 Drawable 转成 Compose 可用的 Image
         Image(
-            painter = BitmapPainter((app.icon as android.graphics.drawable.BitmapDrawable).bitmap.asImageBitmap()),
+            painter = BitmapPainter(app.icon.toBitmap().asImageBitmap()),
             contentDescription = app.name,
             modifier = Modifier.size(56.dp)
         )
