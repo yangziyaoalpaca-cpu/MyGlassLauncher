@@ -5,13 +5,13 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -22,6 +22,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -31,7 +33,9 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
+import kotlinx.coroutines.launch
 
+// 数据类
 data class AppInfo(val name: String, val packageName: String, val icon: ImageBitmap)
 
 class MainActivity : ComponentActivity() {
@@ -43,68 +47,74 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GlassLauncherScreen() {
     val context = LocalContext.current
     var allApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
+    var currentPage by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         val pm = context.packageManager
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val resolveInfos = pm.queryIntentActivities(intent, 0)
+        
+        // 🚀 核心优化 1：将图标降采样至 144x144，极大释放 GPU 压力
         allApps = resolveInfos.map {
             AppInfo(
                 name = it.loadLabel(pm).toString(),
                 packageName = it.activityInfo.packageName,
-                icon = it.loadIcon(pm).toBitmap().asImageBitmap()
+                icon = it.loadIcon(pm).toBitmap(width = 144, height = 144).asImageBitmap()
             )
         }.sortedBy { it.name }
     }
 
+    val appsPerPage = 20
+    val totalPages = (allApps.size + appsPerPage - 1) / appsPerPage
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF1E1E2E)) 
+            .background(Color(0xFF1E1E2E))
+            // 🚀 核心优化 2：放弃笨重的 Pager，使用原生手势滑动
+            .pointerInput(totalPages) {
+                detectHorizontalDragGestures { change, dragAmount ->
+                    change.consume()
+                    if (dragAmount < -100f && currentPage < totalPages - 1) {
+                        currentPage++
+                    } else if (dragAmount > 100f && currentPage > 0) {
+                        currentPage--
+                    }
+                }
+            }
     ) {
-        // 每页放 20 个应用，所以总共是 (allApps.size + 19) / 20 页
-        val pagerState = rememberPagerState(pageCount = { (allApps.size + 19) / 20 })
-        
-        HorizontalPager(
-            state = pagerState, 
-            modifier = Modifier.fillMaxSize()
-        ) { page ->
-            val startIndex = page * 20
-            val pageApps = allApps.drop(startIndex).take(20)
-            
-            // 🚀 性能暴增方案：使用纯 Column + Row 代替沉重的 LazyGrid
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = 60.dp, bottom = 120.dp, start = 16.dp, end = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // 将 20 个应用分成 5 行，每行 4 个
-                for (row in 0 until 5) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        for (col in 0 until 4) {
-                            val index = row * 4 + col
-                            if (index < pageApps.size) {
-                                AppIcon(pageApps[index])
-                            } else {
-                                // 占位，保持排版整齐
-                                Spacer(modifier = Modifier.weight(1f))
-                            }
+        val pageApps = allApps.drop(currentPage * appsPerPage).take(appsPerPage)
+
+        // 网格布局
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 60.dp, bottom = 120.dp, start = 16.dp, end = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            for (row in 0 until 5) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    for (col in 0 until 4) {
+                        val index = row * 4 + col
+                        if (index < pageApps.size) {
+                            AnimatedAppIcon(pageApps[index])
+                        } else {
+                            Spacer(modifier = Modifier.weight(1f))
                         }
                     }
                 }
             }
         }
 
-        // 底部 Dock 栏
+        // 底部 Dock 栏（暂时保留半透明，下一版换液态玻璃）
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -121,30 +131,53 @@ fun GlassLauncherScreen() {
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
             ) {
                 allApps.take(4).forEach { app ->
-                    DockAppIcon(app)
+                    AnimatedAppIcon(app, isDock = true)
                 }
             }
         }
     }
 }
 
+// 🚀 核心优化 3：加入 iOS 风格的弹簧按压动画
 @Composable
-fun AppIcon(app: AppInfo) {
+fun AnimatedAppIcon(app: AppInfo, isDock: Boolean = false) {
     val context = LocalContext.current
     val view = LocalView.current
     var offset by remember { mutableStateOf(Offset.Zero) }
     var size by remember { mutableStateOf(IntSize.Zero) }
+    val scope = rememberCoroutineScope()
+
+    // 弹簧缩放动画状态
+    val scale = remember { Animatable(1f) }
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .width(64.dp) // 固定宽度，防止挤压
+            .width(64.dp)
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+            }
             .onGloballyPositioned { coordinates ->
                 offset = coordinates.positionInWindow()
                 size = coordinates.size
             }
-            .clickable {
-                launchAppWithAnimation(context, view, app, offset, size)
+            .pointerInput(Unit) {
+                // 监听按压手势，实现 iOS 的“弹一下”
+                androidx.compose.foundation.gestures.detectTapGestures(
+                    onPress = {
+                        scope.launch {
+                            scale.animateTo(0.8f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh))
+                        }
+                        val released = tryAwaitRelease()
+                        scope.launch {
+                            scale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh))
+                        }
+                        if (released) {
+                            launchAppWithAnimation(context, view, app, offset, size)
+                        }
+                    }
+                )
             }
     ) {
         Image(
@@ -153,35 +186,14 @@ fun AppIcon(app: AppInfo) {
             contentScale = ContentScale.Fit,
             modifier = Modifier.size(56.dp)
         )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(text = app.name, color = Color.White, fontSize = 12.sp, maxLines = 1)
+        if (!isDock) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(text = app.name, color = Color.White, fontSize = 12.sp, maxLines = 1)
+        }
     }
 }
 
-@Composable
-fun DockAppIcon(app: AppInfo) {
-    val context = LocalContext.current
-    val view = LocalView.current
-    var offset by remember { mutableStateOf(Offset.Zero) }
-    var size by remember { mutableStateOf(IntSize.Zero) }
-
-    Image(
-        bitmap = app.icon,
-        contentDescription = app.name,
-        contentScale = ContentScale.Fit,
-        modifier = Modifier
-            .size(56.dp)
-            .onGloballyPositioned { coordinates ->
-                offset = coordinates.positionInWindow()
-                size = coordinates.size
-            }
-            .clickable {
-                launchAppWithAnimation(context, view, app, offset, size)
-            }
-    )
-}
-
-// 🚀 抽离出来的启动函数，确保带上 FLAG_ACTIVITY_NEW_TASK 并强制使用动画
+// 启动应用
 private fun launchAppWithAnimation(
     context: android.content.Context,
     view: android.view.View,
@@ -190,11 +202,12 @@ private fun launchAppWithAnimation(
     size: IntSize
 ) {
     val intent = context.packageManager.getLaunchIntentForPackage(app.packageName)?.apply {
-        // 这个 Flag 是桌面启动第三方应用必须加的
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
     }
     if (intent != null) {
         try {
+            // 尝试调用系统缩放动画
             val options = ActivityOptions.makeScaleUpAnimation(
                 view,
                 offset.x.toInt(),
@@ -204,7 +217,6 @@ private fun launchAppWithAnimation(
             ).toBundle()
             context.startActivity(intent, options)
         } catch (e: Exception) {
-            // 如果系统拦截了动画导致崩溃，就退回到普通启动
             context.startActivity(intent)
         }
     }
